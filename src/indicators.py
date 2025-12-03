@@ -289,6 +289,268 @@ def calculate_ema_trend(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def calculate_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    识别K线形态
+
+    Args:
+        df: K线数据
+
+    Returns:
+        添加形态识别列后的DataFrame
+    """
+    df = df.copy()
+
+    # 计算K线实体和影线
+    df['body'] = df['close'] - df['open']
+    df['body_abs'] = df['body'].abs()
+    df['upper_shadow'] = df['high'] - df[['open', 'close']].max(axis=1)
+    df['lower_shadow'] = df[['open', 'close']].min(axis=1) - df['low']
+    df['total_range'] = df['high'] - df['low']
+
+    # 平均实体大小（用于判断大小阳线/阴线）
+    avg_body = df['body_abs'].rolling(window=20).mean()
+
+    # 初始化形态列
+    df['pattern'] = ''
+    df['pattern_type'] = ''  # bullish, bearish, neutral
+    df['pattern_strength'] = 0  # 形态强度 1-3
+
+    for i in range(2, len(df)):
+        patterns = []
+        pattern_type = 'neutral'
+        strength = 0
+
+        curr = df.iloc[i]
+        prev = df.iloc[i - 1]
+        prev2 = df.iloc[i - 2]
+        avg = avg_body.iloc[i] if not pd.isna(avg_body.iloc[i]) else curr['body_abs']
+
+        # 避免除零
+        if curr['total_range'] == 0:
+            continue
+
+        body_ratio = curr['body_abs'] / curr['total_range']
+        upper_ratio = curr['upper_shadow'] / curr['total_range']
+        lower_ratio = curr['lower_shadow'] / curr['total_range']
+
+        # ============ 反转形态 ============
+
+        # 1. 锤子线 (Hammer) - 看涨反转
+        if (lower_ratio > 0.6 and body_ratio < 0.3 and upper_ratio < 0.1 and
+                curr['close'] < prev['close']):
+            patterns.append('锤子线')
+            pattern_type = 'bullish'
+            strength = 2
+
+        # 2. 倒锤子线 (Inverted Hammer) - 看涨反转
+        if (upper_ratio > 0.6 and body_ratio < 0.3 and lower_ratio < 0.1 and
+                curr['close'] < prev['close']):
+            patterns.append('倒锤子线')
+            pattern_type = 'bullish'
+            strength = 2
+
+        # 3. 上吊线 (Hanging Man) - 看跌反转
+        if (lower_ratio > 0.6 and body_ratio < 0.3 and upper_ratio < 0.1 and
+                curr['close'] > prev['close']):
+            patterns.append('上吊线')
+            pattern_type = 'bearish'
+            strength = 2
+
+        # 4. 射击之星 (Shooting Star) - 看跌反转
+        if (upper_ratio > 0.6 and body_ratio < 0.3 and lower_ratio < 0.1 and
+                curr['close'] > prev['close']):
+            patterns.append('射击之星')
+            pattern_type = 'bearish'
+            strength = 2
+
+        # 5. 十字星 (Doji)
+        if body_ratio < 0.1:
+            if upper_ratio > 0.4 and lower_ratio > 0.4:
+                patterns.append('长腿十字星')
+                strength = 2
+            elif upper_ratio < 0.1 and lower_ratio > 0.6:
+                patterns.append('蜻蜓十字星')
+                pattern_type = 'bullish'
+                strength = 2
+            elif lower_ratio < 0.1 and upper_ratio > 0.6:
+                patterns.append('墓碑十字星')
+                pattern_type = 'bearish'
+                strength = 2
+            else:
+                patterns.append('十字星')
+                strength = 1
+
+        # 6. 看涨吞没 (Bullish Engulfing)
+        if (prev['body'] < 0 and curr['body'] > 0 and
+                curr['open'] < prev['close'] and curr['close'] > prev['open'] and
+                curr['body_abs'] > prev['body_abs']):
+            patterns.append('看涨吞没')
+            pattern_type = 'bullish'
+            strength = 3
+
+        # 7. 看跌吞没 (Bearish Engulfing)
+        if (prev['body'] > 0 and curr['body'] < 0 and
+                curr['open'] > prev['close'] and curr['close'] < prev['open'] and
+                curr['body_abs'] > prev['body_abs']):
+            patterns.append('看跌吞没')
+            pattern_type = 'bearish'
+            strength = 3
+
+        # 8. 乌云盖顶 (Dark Cloud Cover)
+        if (prev['body'] > 0 and curr['body'] < 0 and
+                curr['open'] > prev['high'] and
+                curr['close'] < (prev['open'] + prev['close']) / 2 and
+                curr['close'] > prev['open']):
+            patterns.append('乌云盖顶')
+            pattern_type = 'bearish'
+            strength = 2
+
+        # 9. 刺透形态 (Piercing Pattern)
+        if (prev['body'] < 0 and curr['body'] > 0 and
+                curr['open'] < prev['low'] and
+                curr['close'] > (prev['open'] + prev['close']) / 2 and
+                curr['close'] < prev['open']):
+            patterns.append('刺透形态')
+            pattern_type = 'bullish'
+            strength = 2
+
+        # 10. 早晨之星 (Morning Star) - 三根K线
+        if (prev2['body'] < 0 and prev2['body_abs'] > avg * 0.5 and
+                prev['body_abs'] < avg * 0.3 and
+                curr['body'] > 0 and curr['body_abs'] > avg * 0.5 and
+                curr['close'] > (prev2['open'] + prev2['close']) / 2):
+            patterns.append('早晨之星')
+            pattern_type = 'bullish'
+            strength = 3
+
+        # 11. 黄昏之星 (Evening Star) - 三根K线
+        if (prev2['body'] > 0 and prev2['body_abs'] > avg * 0.5 and
+                prev['body_abs'] < avg * 0.3 and
+                curr['body'] < 0 and curr['body_abs'] > avg * 0.5 and
+                curr['close'] < (prev2['open'] + prev2['close']) / 2):
+            patterns.append('黄昏之星')
+            pattern_type = 'bearish'
+            strength = 3
+
+        # 12. 三只白兵 (Three White Soldiers)
+        if (prev2['body'] > 0 and prev['body'] > 0 and curr['body'] > 0 and
+                prev['close'] > prev2['close'] and curr['close'] > prev['close'] and
+                prev['body_abs'] > avg * 0.5 and curr['body_abs'] > avg * 0.5):
+            patterns.append('三只白兵')
+            pattern_type = 'bullish'
+            strength = 3
+
+        # 13. 三只黑鸦 (Three Black Crows)
+        if (prev2['body'] < 0 and prev['body'] < 0 and curr['body'] < 0 and
+                prev['close'] < prev2['close'] and curr['close'] < prev['close'] and
+                prev['body_abs'] > avg * 0.5 and curr['body_abs'] > avg * 0.5):
+            patterns.append('三只黑鸦')
+            pattern_type = 'bearish'
+            strength = 3
+
+        # ============ 持续形态 ============
+
+        # 14. 大阳线
+        if curr['body'] > 0 and curr['body_abs'] > avg * 1.5:
+            patterns.append('大阳线')
+            pattern_type = 'bullish'
+            strength = max(strength, 2)
+
+        # 15. 大阴线
+        if curr['body'] < 0 and curr['body_abs'] > avg * 1.5:
+            patterns.append('大阴线')
+            pattern_type = 'bearish'
+            strength = max(strength, 2)
+
+        # 保存识别结果
+        if patterns:
+            df.iloc[i, df.columns.get_loc('pattern')] = ','.join(patterns)
+            df.iloc[i, df.columns.get_loc('pattern_type')] = pattern_type
+            df.iloc[i, df.columns.get_loc('pattern_strength')] = strength
+
+    # 清理临时列
+    df = df.drop(columns=['body', 'body_abs', 'upper_shadow', 'lower_shadow', 'total_range'])
+
+    return df
+
+
+def calculate_support_resistance(df: pd.DataFrame, window: int = 20, num_levels: int = 3) -> pd.DataFrame:
+    """
+    识别支撑位和阻力位
+
+    Args:
+        df: K线数据
+        window: 用于识别高低点的窗口大小
+        num_levels: 返回的支撑/阻力位数量
+
+    Returns:
+        添加支撑阻力位后的DataFrame
+    """
+    df = df.copy()
+
+    # 识别局部高点和低点
+    highs = []
+    lows = []
+
+    for i in range(window, len(df) - window):
+        # 局部最高点
+        if df['high'].iloc[i] == df['high'].iloc[i - window:i + window + 1].max():
+            highs.append(df['high'].iloc[i])
+        # 局部最低点
+        if df['low'].iloc[i] == df['low'].iloc[i - window:i + window + 1].min():
+            lows.append(df['low'].iloc[i])
+
+    # 聚类相近的价位
+    def cluster_levels(levels, threshold_pct=0.5):
+        if not levels:
+            return []
+        levels = sorted(levels)
+        clusters = []
+        current_cluster = [levels[0]]
+
+        for level in levels[1:]:
+            if (level - current_cluster[-1]) / current_cluster[-1] * 100 < threshold_pct:
+                current_cluster.append(level)
+            else:
+                clusters.append(np.mean(current_cluster))
+                current_cluster = [level]
+        clusters.append(np.mean(current_cluster))
+
+        # 按出现频率排序（这里简化为按价格排序）
+        return sorted(clusters, reverse=True)[:num_levels * 2]
+
+    resistance_levels = cluster_levels(highs)
+    support_levels = cluster_levels(lows)
+
+    current_price = df['close'].iloc[-1]
+
+    # 找出当前价格上方的阻力位和下方的支撑位
+    resistances = [r for r in resistance_levels if r > current_price][:num_levels]
+    supports = [s for s in support_levels if s < current_price][-num_levels:]
+
+    # 添加到DataFrame
+    df['support_levels'] = [supports] * len(df)
+    df['resistance_levels'] = [resistances] * len(df)
+
+    # 计算最近支撑和阻力
+    df['nearest_support'] = max(supports) if supports else None
+    df['nearest_resistance'] = min(resistances) if resistances else None
+
+    # 计算距离支撑/阻力的百分比
+    if supports:
+        df['distance_to_support'] = (current_price - max(supports)) / current_price * 100
+    else:
+        df['distance_to_support'] = None
+
+    if resistances:
+        df['distance_to_resistance'] = (min(resistances) - current_price) / current_price * 100
+    else:
+        df['distance_to_resistance'] = None
+
+    return df
+
+
 def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
     计算所有技术指标
@@ -310,4 +572,6 @@ def calculate_all_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = calculate_obv(df)
     df = calculate_momentum(df)
     df = calculate_volume_ma(df)
+    df = calculate_candlestick_patterns(df)
+    df = calculate_support_resistance(df)
     return df

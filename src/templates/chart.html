@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>K线图表 - 币安趋势分析</title>
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+            min-height: 100vh;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: rgba(255,255,255,0.05);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .header h1 {
+            font-size: 20px;
+            font-weight: 500;
+        }
+        .header a {
+            color: #888;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .header a:hover { color: #fff; }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            padding: 15px 20px;
+            background: rgba(255,255,255,0.03);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            flex-wrap: wrap;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .control-group label {
+            font-size: 13px;
+            color: #888;
+        }
+        select {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        select:focus { outline: none; border-color: #4a90d9; }
+
+        .toggle-btn {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            color: #888;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .toggle-btn.active {
+            background: rgba(74,144,217,0.3);
+            border-color: #4a90d9;
+            color: #fff;
+        }
+        .toggle-btn:hover { border-color: #4a90d9; }
+
+        .chart-container {
+            display: flex;
+            height: calc(100vh - 130px);
+        }
+        #chart {
+            flex: 1;
+        }
+
+        .info-panel {
+            width: 280px;
+            background: rgba(255,255,255,0.03);
+            border-left: 1px solid rgba(255,255,255,0.1);
+            padding: 15px;
+            overflow-y: auto;
+        }
+        .info-section {
+            margin-bottom: 20px;
+        }
+        .info-section h3 {
+            font-size: 13px;
+            color: #888;
+            margin-bottom: 10px;
+            padding-bottom: 5px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            font-size: 13px;
+        }
+        .info-item .label { color: #888; }
+        .info-item .value { font-weight: 500; }
+        .bullish { color: #00d4aa; }
+        .bearish { color: #ff6b6b; }
+        .neutral { color: #888; }
+
+        .pattern-tag {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin: 2px;
+        }
+        .pattern-tag.bullish { background: rgba(0,212,170,0.2); color: #00d4aa; }
+        .pattern-tag.bearish { background: rgba(255,107,107,0.2); color: #ff6b6b; }
+        .pattern-tag.neutral { background: rgba(255,255,255,0.1); color: #888; }
+
+        .level-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 8px;
+            margin: 3px 0;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .level-item.support { background: rgba(0,212,170,0.1); }
+        .level-item.resistance { background: rgba(255,107,107,0.1); }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #888;
+        }
+
+        @media (max-width: 900px) {
+            .chart-container { flex-direction: column; }
+            .info-panel { width: 100%; height: 200px; border-left: none; border-top: 1px solid rgba(255,255,255,0.1); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>K线图表分析</h1>
+        <a href="/">返回趋势面板</a>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>交易对:</label>
+            <select id="symbolSelect">
+                {% for symbol in symbols %}
+                <option value="{{ symbol }}">{{ symbol }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="control-group">
+            <label>周期:</label>
+            <select id="intervalSelect">
+                {% for interval in intervals %}
+                <option value="{{ interval }}">{{ interval }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="control-group">
+            <button class="toggle-btn active" data-indicator="ma">MA</button>
+            <button class="toggle-btn" data-indicator="boll">布林带</button>
+            <button class="toggle-btn active" data-indicator="volume">成交量</button>
+            <button class="toggle-btn active" data-indicator="patterns">形态标记</button>
+            <button class="toggle-btn active" data-indicator="sr">支撑阻力</button>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <div id="chart">
+            <div class="loading">加载中...</div>
+        </div>
+        <div class="info-panel">
+            <div class="info-section">
+                <h3>当前信息</h3>
+                <div class="info-item">
+                    <span class="label">价格</span>
+                    <span class="value" id="currentPrice">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">24h涨跌</span>
+                    <span class="value" id="priceChange">-</span>
+                </div>
+            </div>
+
+            <div class="info-section">
+                <h3>K线形态</h3>
+                <div id="patternsList">-</div>
+            </div>
+
+            <div class="info-section">
+                <h3>支撑位</h3>
+                <div id="supportsList">-</div>
+            </div>
+
+            <div class="info-section">
+                <h3>阻力位</h3>
+                <div id="resistancesList">-</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+        let candlestickSeries = null;
+        let volumeSeries = null;
+        let maSeries = { ma7: null, ma25: null, ma99: null };
+        let bollSeries = { upper: null, middle: null, lower: null };
+        let srLines = [];
+        let markers = [];
+
+        const indicators = {
+            ma: true,
+            boll: false,
+            volume: true,
+            patterns: true,
+            sr: true
+        };
+
+        function initChart() {
+            const container = document.getElementById('chart');
+            container.innerHTML = '';
+
+            chart = LightweightCharts.createChart(container, {
+                layout: {
+                    background: { color: '#1a1a2e' },
+                    textColor: '#888',
+                },
+                grid: {
+                    vertLines: { color: 'rgba(255,255,255,0.05)' },
+                    horzLines: { color: 'rgba(255,255,255,0.05)' },
+                },
+                crosshair: {
+                    mode: LightweightCharts.CrosshairMode.Normal,
+                },
+                rightPriceScale: {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                },
+                timeScale: {
+                    borderColor: 'rgba(255,255,255,0.1)',
+                    timeVisible: true,
+                },
+            });
+
+            // K线
+            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#00d4aa',
+                downColor: '#ff6b6b',
+                borderUpColor: '#00d4aa',
+                borderDownColor: '#ff6b6b',
+                wickUpColor: '#00d4aa',
+                wickDownColor: '#ff6b6b',
+            });
+
+            // 成交量
+            volumeSeries = chart.addHistogramSeries({
+                color: '#4a90d9',
+                priceFormat: { type: 'volume' },
+                priceScaleId: '',
+                scaleMargins: { top: 0.85, bottom: 0 },
+            });
+
+            // MA线
+            maSeries.ma7 = chart.addLineSeries({ color: '#f0b90b', lineWidth: 1, title: 'MA7' });
+            maSeries.ma25 = chart.addLineSeries({ color: '#e91e63', lineWidth: 1, title: 'MA25' });
+            maSeries.ma99 = chart.addLineSeries({ color: '#9c27b0', lineWidth: 1, title: 'MA99' });
+
+            // 布林带
+            bollSeries.upper = chart.addLineSeries({ color: 'rgba(76,175,80,0.5)', lineWidth: 1 });
+            bollSeries.middle = chart.addLineSeries({ color: 'rgba(76,175,80,0.8)', lineWidth: 1 });
+            bollSeries.lower = chart.addLineSeries({ color: 'rgba(76,175,80,0.5)', lineWidth: 1 });
+
+            chart.timeScale().fitContent();
+        }
+
+        async function loadData() {
+            const symbol = document.getElementById('symbolSelect').value;
+            const interval = document.getElementById('intervalSelect').value;
+
+            try {
+                const response = await fetch(`/api/klines?symbol=${symbol}&interval=${interval}&limit=200`);
+                const result = await response.json();
+
+                if (!result.success) {
+                    console.error('加载失败:', result.error);
+                    return;
+                }
+
+                const data = result.data;
+
+                // 设置K线数据
+                candlestickSeries.setData(data.klines);
+
+                // 设置成交量
+                const volumeData = data.klines.map(k => ({
+                    time: k.time,
+                    value: k.volume,
+                    color: k.close >= k.open ? 'rgba(0,212,170,0.5)' : 'rgba(255,107,107,0.5)'
+                }));
+                volumeSeries.setData(volumeData);
+
+                // 设置MA
+                maSeries.ma7.setData(data.ma.ma7);
+                maSeries.ma25.setData(data.ma.ma25);
+                maSeries.ma99.setData(data.ma.ma99);
+
+                // 设置布林带
+                bollSeries.upper.setData(data.boll.upper);
+                bollSeries.middle.setData(data.boll.middle);
+                bollSeries.lower.setData(data.boll.lower);
+
+                // 形态标记
+                markers = data.patterns.map(p => ({
+                    time: p.time,
+                    position: p.type === 'bearish' ? 'aboveBar' : 'belowBar',
+                    color: p.type === 'bullish' ? '#00d4aa' : (p.type === 'bearish' ? '#ff6b6b' : '#888'),
+                    shape: p.type === 'bullish' ? 'arrowUp' : 'arrowDown',
+                    text: p.pattern.split(',')[0]
+                }));
+                if (indicators.patterns) {
+                    candlestickSeries.setMarkers(markers);
+                }
+
+                // 更新支撑阻力位显示
+                updateSRLines(data.support_resistance);
+
+                // 更新信息面板
+                updateInfoPanel(data);
+
+                // 更新显示状态
+                updateIndicatorVisibility();
+
+                chart.timeScale().fitContent();
+            } catch (error) {
+                console.error('加载数据出错:', error);
+            }
+        }
+
+        function updateSRLines(sr) {
+            // 清除旧线
+            srLines.forEach(line => {
+                try { chart.removePriceLine(line); } catch(e) {}
+            });
+            srLines = [];
+
+            if (!indicators.sr) return;
+
+            const currentPrice = candlestickSeries.data && candlestickSeries.data().length > 0
+                ? candlestickSeries.data()[candlestickSeries.data().length - 1].close
+                : null;
+
+            // 绘制支撑位
+            if (sr.supports) {
+                sr.supports.forEach(price => {
+                    const line = candlestickSeries.createPriceLine({
+                        price: price,
+                        color: '#00d4aa',
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: '支撑',
+                    });
+                    srLines.push(line);
+                });
+            }
+
+            // 绘制阻力位
+            if (sr.resistances) {
+                sr.resistances.forEach(price => {
+                    const line = candlestickSeries.createPriceLine({
+                        price: price,
+                        color: '#ff6b6b',
+                        lineWidth: 1,
+                        lineStyle: LightweightCharts.LineStyle.Dashed,
+                        axisLabelVisible: true,
+                        title: '阻力',
+                    });
+                    srLines.push(line);
+                });
+            }
+        }
+
+        function updateInfoPanel(data) {
+            const klines = data.klines;
+            if (klines.length > 0) {
+                const latest = klines[klines.length - 1];
+                document.getElementById('currentPrice').textContent = '$' + latest.close.toLocaleString();
+            }
+
+            // 形态列表
+            const patternsList = document.getElementById('patternsList');
+            if (data.patterns.length > 0) {
+                const recentPatterns = data.patterns.slice(-5);
+                patternsList.innerHTML = recentPatterns.map(p =>
+                    `<span class="pattern-tag ${p.type}">${p.pattern}</span>`
+                ).join('');
+            } else {
+                patternsList.innerHTML = '<span class="neutral">暂无形态</span>';
+            }
+
+            // 支撑位列表
+            const supportsList = document.getElementById('supportsList');
+            const sr = data.support_resistance;
+            if (sr.supports && sr.supports.length > 0) {
+                supportsList.innerHTML = sr.supports.map(s =>
+                    `<div class="level-item support"><span>$${s.toLocaleString()}</span></div>`
+                ).join('');
+            } else {
+                supportsList.innerHTML = '<span class="neutral">暂无</span>';
+            }
+
+            // 阻力位列表
+            const resistancesList = document.getElementById('resistancesList');
+            if (sr.resistances && sr.resistances.length > 0) {
+                resistancesList.innerHTML = sr.resistances.map(r =>
+                    `<div class="level-item resistance"><span>$${r.toLocaleString()}</span></div>`
+                ).join('');
+            } else {
+                resistancesList.innerHTML = '<span class="neutral">暂无</span>';
+            }
+        }
+
+        function updateIndicatorVisibility() {
+            // MA
+            Object.values(maSeries).forEach(s => s.applyOptions({ visible: indicators.ma }));
+
+            // 布林带
+            Object.values(bollSeries).forEach(s => s.applyOptions({ visible: indicators.boll }));
+
+            // 成交量
+            volumeSeries.applyOptions({ visible: indicators.volume });
+
+            // 形态标记
+            if (indicators.patterns) {
+                candlestickSeries.setMarkers(markers);
+            } else {
+                candlestickSeries.setMarkers([]);
+            }
+        }
+
+        // 事件监听
+        document.getElementById('symbolSelect').addEventListener('change', loadData);
+        document.getElementById('intervalSelect').addEventListener('change', loadData);
+
+        document.querySelectorAll('.toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const indicator = btn.dataset.indicator;
+                indicators[indicator] = !indicators[indicator];
+                btn.classList.toggle('active');
+
+                if (indicator === 'sr') {
+                    // 重新加载支撑阻力线
+                    loadData();
+                } else {
+                    updateIndicatorVisibility();
+                }
+            });
+        });
+
+        // 初始化
+        initChart();
+        loadData();
+
+        // 响应窗口大小变化
+        window.addEventListener('resize', () => {
+            if (chart) {
+                chart.applyOptions({
+                    width: document.getElementById('chart').clientWidth,
+                    height: document.getElementById('chart').clientHeight
+                });
+            }
+        });
+    </script>
+</body>
+</html>
