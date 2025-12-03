@@ -160,6 +160,21 @@
             return 'low';
         }
 
+        function intervalToMinutes(interval) {
+            const num = parseInt(interval);
+            if (interval.endsWith('m')) return num;
+            if (interval.endsWith('h')) return num * 60;
+            if (interval.endsWith('d')) return num * 60 * 24;
+            if (interval.endsWith('w')) return num * 60 * 24 * 7;
+            return num;
+        }
+
+        function sortIntervals(intervals) {
+            return Object.entries(intervals).sort((a, b) =>
+                intervalToMinutes(a[0]) - intervalToMinutes(b[0])
+            );
+        }
+
         function formatPrice(price) {
             return price >= 1000 ? price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})
                                  : price.toFixed(4);
@@ -189,7 +204,7 @@
                         <div class="intervals-grid">
                 `;
 
-                for (const [interval, iData] of Object.entries(symbolData.intervals)) {
+                for (const [interval, iData] of sortIntervals(symbolData.intervals)) {
                     const pred = iData.prediction;
                     const dirClass = getDirectionClass(pred.direction);
                     html += `
