@@ -75,6 +75,9 @@ def get_analysis():
                 advice = interval_data.get('trading_advice', {})
 
                 # 简化数据
+                # ML 预测参考
+                ml_pred = pred.get('ml_prediction', {})
+
                 data['symbols'][symbol]['intervals'][interval] = {
                     'current_price': interval_data['current_price'],
                     'stats_24h': interval_data['stats_24h'],
@@ -82,11 +85,18 @@ def get_analysis():
                         'direction': pred['overall_direction'],
                         'confidence': pred['confidence'],
                         'score': pred['score'],
+                        'raw_rule_score': pred.get('raw_rule_score'),
                         'volume_weight': pred.get('volume_weight', 1.0),
                         'change_percent': pred['linear_change_percent'],
                         'trend_strength': pred.get('trend_strength', {}),
                         'momentum': pred.get('momentum', {}),
                         'obv_divergence': pred.get('obv_divergence', {}),
+                        'ml_prediction': {
+                            'direction': ml_pred.get('direction'),
+                            'confidence': ml_pred.get('confidence'),
+                            'contribution': ml_pred.get('contribution'),
+                            'model_version': ml_pred.get('model_version'),
+                        } if ml_pred else None,
                     },
                     'trading_advice': {
                         'action': advice.get('action', '观望'),

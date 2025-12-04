@@ -85,6 +85,15 @@
         .direction-neutral { background: rgba(255,255,255,0.1); color: #888; }
 
         .interval-meta { font-size: 12px; color: #666; margin-top: 8px; }
+        .ml-ref {
+            font-size: 11px;
+            color: #9b59b6;
+            margin-top: 6px;
+            padding: 4px 8px;
+            background: rgba(155, 89, 182, 0.1);
+            border-radius: 4px;
+            display: inline-block;
+        }
         .interval-score { font-size: 13px; margin-top: 4px; }
 
         .resonance-box {
@@ -424,6 +433,15 @@
             return 'low';
         }
 
+        function getMlDirectionLabel(direction) {
+            const labels = {
+                'bullish': '看涨',
+                'bearish': '看跌',
+                'neutral': '观望'
+            };
+            return labels[direction] || direction;
+        }
+
         function intervalToMinutes(interval) {
             const num = parseInt(interval);
             if (interval.endsWith('m')) return num;
@@ -548,12 +566,17 @@
                 for (const [interval, iData] of sortIntervals(symbolData.intervals)) {
                     const pred = iData.prediction;
                     const dirClass = getDirectionClass(pred.direction);
+                    const mlPred = pred.ml_prediction;
+                    const mlHtml = mlPred && mlPred.direction
+                        ? `<div class="ml-ref">ML: ${getMlDirectionLabel(mlPred.direction)} (${(mlPred.confidence * 100).toFixed(0)}%)</div>`
+                        : '';
                     html += `
                         <div class="interval-card">
                             <div class="interval-name">${interval}</div>
                             <div class="interval-direction direction-${dirClass}">${pred.direction}</div>
                             <div class="interval-score">评分: ${pred.score} (${pred.volume_weight.toFixed(1)}x)</div>
                             <div class="interval-meta">置信度: ${pred.confidence}</div>
+                            ${mlHtml}
                         </div>
                     `;
                 }

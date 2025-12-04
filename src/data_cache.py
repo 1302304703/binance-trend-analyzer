@@ -14,6 +14,7 @@ from collector import get_klines, get_ticker_price, get_24h_stats
 from indicators import calculate_all_indicators
 from predictor import TrendPredictor
 from prediction_tracker import get_tracker
+from feedback_learning import get_online_learner
 from config import SYMBOLS, INTERVALS, KLINE_LIMIT
 
 
@@ -201,7 +202,7 @@ class DataCache:
                     if df is None or len(df) < 100:
                         continue
 
-                    # 预测
+                    # 规则预测
                     predictor = TrendPredictor(df)
                     prediction = predictor.get_comprehensive_prediction()
 
@@ -209,6 +210,17 @@ class DataCache:
                     latest = df.iloc[-1]
                     support_levels = latest.get('support_levels', [])
                     resistance_levels = latest.get('resistance_levels', [])
+
+                    # ML 预测融合
+                    ml_prediction = self._get_ml_prediction(
+                        symbol, interval, prediction,
+                        {'indicators': {
+                            'RSI': latest.get('RSI'),
+                            'MACD_Hist': latest.get('MACD_Hist'),
+                        }}
+                    )
+                    if ml_prediction:
+                        prediction = self._fuse_predictions(prediction, ml_prediction)
 
                     # 交易建议
                     trading_advice = predictor.generate_trading_advice(
@@ -443,6 +455,113 @@ class DataCache:
 
         # 过滤 None 值
         return {k: v for k, v in features.items() if v is not None}
+
+    def _get_ml_prediction(self, symbol: str, interval: str,
+                           rule_prediction: Dict, data: Dict) -> Optional[Dict]:
+        """
+        获取 ML 模型预测
+
+        Args:
+            symbol: 交易对
+            interval: 周期
+            rule_prediction: 规则预测结果
+            data: 包含 indicators 的数据
+
+        Returns:
+            ML 预测结果或 None
+        """
+        try:
+            learner = get_online_learner()
+
+            # 构建特征
+            features = self._extract_features_for_learning(data, rule_prediction)
+
+            # 获取 ML 预测
+            ml_result = learner.predict(symbol, interval, features)
+            return ml_result
+        except Exception as e:
+            print(f"[WARN] ML预测失败 {symbol} {interval}: {e}")
+            return None
+
+    def _fuse_predictions(self, rule_pred: Dict, ml_pred: Dict) -> Dict:
+        """
+        融合规则预测与 ML 预测
+
+        权重：规则 60%, ML 40%
+
+        Args:
+            rule_pred: 规则预测结果
+            ml_pred: ML 预测结果
+
+        Returns:
+            融合后的预测结果
+        """
+        RULE_WEIGHT = 0.6
+        ML_WEIGHT = 0.4
+
+        # 从概率中获取 ML 方向分数
+        probs = ml_pred.get('probabilities', {})
+        bullish_prob = probs.get('bullish', 0.33)
+        bearish_prob = probs.get('bearish', 0.33)
+        neutral_prob = probs.get('neutral', 0.34)
+
+        # ML 方向分数: bullish_prob - bearish_prob（范围 -1 到 1）
+        ml_score = bullish_prob - bearish_prob
+
+        # 确定 ML 方向（用于显示）
+        if bullish_prob > bearish_prob and bullish_prob > neutral_prob:
+            ml_direction = 'bullish'
+        elif bearish_prob > bullish_prob and bearish_prob > neutral_prob:
+            ml_direction = 'bearish'
+        else:
+            ml_direction = 'neutral'
+
+        # ML 置信度调整
+        ml_confidence = ml_pred.get('confidence', 0.5)
+        ml_score *= ml_confidence
+
+        # 规则预测分数
+        rule_score = rule_pred.get('score', 0)
+
+        # 融合分数
+        fused_score = rule_score * RULE_WEIGHT + ml_score * ML_WEIGHT
+
+        # 更新预测结果
+        result = rule_pred.copy()
+        result['score'] = round(fused_score, 2)
+        result['raw_rule_score'] = rule_score
+        result['ml_prediction'] = {
+            'direction': ml_direction,
+            'confidence': round(ml_confidence, 2),
+            'probabilities': ml_pred.get('probabilities', {}),
+            'model_version': ml_pred.get('model_key'),
+            'contribution': round(ml_score * ML_WEIGHT, 2)
+        }
+
+        # 重新计算方向和置信度
+        if fused_score > 1.5:
+            result['overall_direction'] = '强烈看涨'
+            result['confidence'] = '极高'
+        elif fused_score > 0.8:
+            result['overall_direction'] = '看涨'
+            result['confidence'] = '高'
+        elif fused_score > 0.3:
+            result['overall_direction'] = '偏多'
+            result['confidence'] = '中'
+        elif fused_score < -1.5:
+            result['overall_direction'] = '强烈看跌'
+            result['confidence'] = '极高'
+        elif fused_score < -0.8:
+            result['overall_direction'] = '看跌'
+            result['confidence'] = '高'
+        elif fused_score < -0.3:
+            result['overall_direction'] = '偏空'
+            result['confidence'] = '中'
+        else:
+            result['overall_direction'] = '震荡观望'
+            result['confidence'] = '低'
+
+        return result
 
     def start_background_update(self, interval: float = 30.0):
         """
