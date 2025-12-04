@@ -1,14 +1,14 @@
 """
-预测准确率追踪模块 - 使用 SQLite 存储，支持反馈学习
+预测准确率追踪模块 - 使用 JSON 文件存储
 @author Reln Ding
 """
 
+import os
+import json
 import time
 import threading
 from datetime import datetime
 from typing import Dict, List, Optional
-
-from feedback_learning import get_feedback_db, get_online_learner, FeedbackDatabase
 
 # 各周期的验证时间（分钟）
 VERIFY_PERIODS = {
@@ -30,19 +30,44 @@ DIRECTION_MAP = {
     '震荡观望': 'neutral',
 }
 
+# 数据文件路径
+DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data')
+PREDICTIONS_FILE = os.path.join(DATA_DIR, 'predictions.json')
+
 
 class PredictionTracker:
-    """预测准确率追踪器（SQLite版本）"""
+    """预测准确率追踪器（JSON版本）"""
 
     def __init__(self):
-        self.db: FeedbackDatabase = get_feedback_db()
         self._lock = threading.RLock()
-        self._training_check_counter = 0
+        self._predictions: List[Dict] = []
+        self._load_predictions()
+
+    def _load_predictions(self):
+        """从文件加载预测数据"""
+        if os.path.exists(PREDICTIONS_FILE):
+            try:
+                with open(PREDICTIONS_FILE, 'r', encoding='utf-8') as f:
+                    self._predictions = json.load(f)
+            except Exception as e:
+                print(f"[WARN] 加载预测数据失败: {e}")
+                self._predictions = []
+        else:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            self._predictions = []
+
+    def _save_predictions(self):
+        """保存预测数据到文件"""
+        try:
+            os.makedirs(DATA_DIR, exist_ok=True)
+            with open(PREDICTIONS_FILE, 'w', encoding='utf-8') as f:
+                json.dump(self._predictions, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[ERROR] 保存预测数据失败: {e}")
 
     def record_prediction(self, symbol: str, interval: str,
                           direction: str, confidence: str,
-                          score: float, price: float,
-                          features: Dict = None):
+                          score: float, price: float):
         """
         记录一条预测
 
@@ -53,7 +78,6 @@ class PredictionTracker:
             confidence: 置信度
             score: 评分
             price: 当前价格
-            features: 特征快照（技术指标等）
         """
         now = time.time()
 
@@ -71,9 +95,26 @@ class PredictionTracker:
             'price_at_prediction': price,
             'timestamp': now,
             'datetime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'verified': False,
+            'actual_direction': None,
+            'price_at_verify': None,
+            'price_change_percent': None,
+            'is_correct': None
         }
 
-        self.db.insert_prediction(prediction, features)
+        with self._lock:
+            # 检查是否已存在相同的预测（同一symbol+interval在短时间内）
+            exists = False
+            for p in self._predictions:
+                if (p['symbol'] == symbol and
+                    p['interval'] == interval and
+                    abs(p['timestamp'] - now) < 60):  # 1分钟内不重复记录
+                    exists = True
+                    break
+
+            if not exists:
+                self._predictions.append(prediction)
+                self._save_predictions()
 
     def verify_predictions(self, current_prices: Dict[str, float]):
         """
@@ -83,52 +124,59 @@ class PredictionTracker:
             current_prices: {symbol: current_price}
         """
         now = time.time()
-        unverified = self.db.get_unverified_predictions()
+        updated = False
 
-        for pred in unverified:
-            symbol = pred['symbol']
-            interval = pred['interval']
-            timestamp = pred['timestamp']
+        with self._lock:
+            for pred in self._predictions:
+                if pred['verified']:
+                    continue
 
-            # 检查是否到了验证时间
-            verify_minutes = VERIFY_PERIODS.get(interval, 60)
-            verify_time = timestamp + (verify_minutes * 60)
+                symbol = pred['symbol']
+                interval = pred['interval']
+                timestamp = pred['timestamp']
 
-            if now < verify_time:
-                continue
+                # 检查是否到了验证时间
+                verify_minutes = VERIFY_PERIODS.get(interval, 60)
+                verify_time = timestamp + (verify_minutes * 60)
 
-            # 获取当前价格
-            current_price = current_prices.get(symbol)
-            if current_price is None:
-                continue
+                if now < verify_time:
+                    continue
 
-            # 计算价格变化
-            price_at_prediction = pred['price_at_prediction']
-            price_change = current_price - price_at_prediction
-            price_change_percent = (price_change / price_at_prediction) * 100
+                # 获取当前价格
+                current_price = current_prices.get(symbol)
+                if current_price is None:
+                    continue
 
-            # 判断实际方向
-            if price_change_percent > 0.1:
-                actual_direction = 'bullish'
-            elif price_change_percent < -0.1:
-                actual_direction = 'bearish'
-            else:
-                actual_direction = 'neutral'
+                # 计算价格变化
+                price_at_prediction = pred['price_at_prediction']
+                price_change = current_price - price_at_prediction
+                price_change_percent = (price_change / price_at_prediction) * 100
 
-            # 判断预测是否正确
-            predicted_direction = pred['direction_normalized']
-            is_correct = self._check_prediction_correct(
-                predicted_direction, actual_direction, price_change_percent
-            )
+                # 判断实际方向
+                if price_change_percent > 0.1:
+                    actual_direction = 'bullish'
+                elif price_change_percent < -0.1:
+                    actual_direction = 'bearish'
+                else:
+                    actual_direction = 'neutral'
 
-            # 更新数据库
-            self.db.update_verification(
-                pred['id'], actual_direction, current_price,
-                round(price_change_percent, 4), is_correct
-            )
+                # 判断预测是否正确
+                predicted_direction = pred['direction_normalized']
+                is_correct = self._check_prediction_correct(
+                    predicted_direction, actual_direction, price_change_percent
+                )
 
-        # 检查是否需要触发训练
-        self._check_and_trigger_training()
+                # 更新预测记录
+                pred['verified'] = True
+                pred['actual_direction'] = actual_direction
+                pred['price_at_verify'] = current_price
+                pred['price_change_percent'] = round(price_change_percent, 4)
+                pred['is_correct'] = is_correct
+                pred['verify_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                updated = True
+
+            if updated:
+                self._save_predictions()
 
     def _check_prediction_correct(self, predicted: str, actual: str,
                                    change_percent: float) -> bool:
@@ -137,38 +185,43 @@ class PredictionTracker:
             return abs(change_percent) < 0.5
         return predicted == actual
 
-    def _check_and_trigger_training(self):
-        """检查并触发增量训练"""
-        self._training_check_counter += 1
-
-        # 每10次验证检查一次是否需要训练
-        if self._training_check_counter % 10 != 0:
-            return
-
-        learner = get_online_learner()
-        if learner.should_retrain():
-            # 异步触发训练
-            thread = threading.Thread(target=self._do_training, daemon=True)
-            thread.start()
-
-    def _do_training(self):
-        """执行训练（在后台线程中）"""
-        try:
-            learner = get_online_learner()
-            result = learner.train()
-            if result:
-                print(f"[INFO] 反馈学习训练完成: accuracy={result['accuracy']:.2%}, "
-                      f"samples={result['train_samples']}")
-        except Exception as e:
-            print(f"[ERROR] 反馈学习训练失败: {e}")
-
     def get_accuracy_stats(self) -> Dict:
         """获取准确率统计"""
-        return self.db.get_accuracy_stats()
+        with self._lock:
+            total = len(self._predictions)
+            verified = [p for p in self._predictions if p['verified']]
+            verified_count = len(verified)
+            correct_count = len([p for p in verified if p['is_correct']])
+
+            # 按周期统计
+            by_interval = {}
+            for p in verified:
+                interval = p['interval']
+                if interval not in by_interval:
+                    by_interval[interval] = {'total': 0, 'correct': 0}
+                by_interval[interval]['total'] += 1
+                if p['is_correct']:
+                    by_interval[interval]['correct'] += 1
+
+            # 计算各周期准确率
+            for interval, stats in by_interval.items():
+                if stats['total'] > 0:
+                    stats['accuracy'] = round(stats['correct'] / stats['total'] * 100, 1)
+                else:
+                    stats['accuracy'] = 0
+
+            return {
+                'total_predictions': total,
+                'verified_count': verified_count,
+                'pending_count': total - verified_count,
+                'correct_count': correct_count,
+                'accuracy': round(correct_count / verified_count * 100, 1) if verified_count > 0 else 0,
+                'by_interval': by_interval
+            }
 
     def get_interval_accuracy(self, symbol: str, interval: str) -> Optional[Dict]:
         """获取特定交易对和周期的准确率"""
-        stats = self.db.get_accuracy_stats()
+        stats = self.get_accuracy_stats()
         by_interval = stats.get('by_interval', {})
         return by_interval.get(interval)
 
