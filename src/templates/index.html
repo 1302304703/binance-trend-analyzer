@@ -412,6 +412,16 @@
     <script>
         const refreshInterval = {{ refresh_interval }} * 1000;
 
+        // 持久化用户选择的周期
+        function getSelectedInterval(symbol) {
+            const saved = localStorage.getItem(`adviceInterval_${symbol}`);
+            return saved || '1h';  // 默认1h
+        }
+
+        function setSelectedInterval(symbol, interval) {
+            localStorage.setItem(`adviceInterval_${symbol}`, interval);
+        }
+
         function getDirectionClass(direction) {
             if (direction.includes('涨') || direction.includes('多')) return 'bullish';
             if (direction.includes('跌') || direction.includes('空')) return 'bearish';
@@ -575,22 +585,23 @@
                 // 显示周期切换Tab和交易建议
                 const adviceIntervals = ['5m', '30m', '1h', '4h', '1d'];
                 const symbolId = symbol.replace(/[^a-zA-Z0-9]/g, '');
+                const selectedInterval = getSelectedInterval(symbolId);
 
                 html += `<div class="advice-tabs">`;
                 for (const intv of adviceIntervals) {
                     const hasAdvice = symbolData.intervals[intv]?.trading_advice;
-                    const activeClass = intv === '1h' ? 'active' : '';
+                    const activeClass = intv === selectedInterval ? 'active' : '';
                     const disabledStyle = hasAdvice ? '' : 'opacity: 0.4; pointer-events: none;';
                     html += `<span class="advice-tab ${activeClass}" style="${disabledStyle}"
                                    data-symbol="${symbolId}" data-interval="${intv}">${intv}</span>`;
                 }
                 html += `</div>`;
 
-                // 渲染所有周期的建议，默认只显示1h
+                // 渲染所有周期的建议，显示用户选择的周期
                 for (const intv of adviceIntervals) {
                     const intvData = symbolData.intervals[intv];
                     if (intvData && intvData.trading_advice) {
-                        const displayStyle = intv === '1h' ? '' : 'display: none;';
+                        const displayStyle = intv === selectedInterval ? '' : 'display: none;';
                         html += `<div class="advice-content" data-symbol="${symbolId}" data-interval="${intv}" style="${displayStyle}">`;
                         html += renderAdviceBox(intvData.trading_advice, intv);
                         html += `</div>`;
@@ -612,6 +623,9 @@
                 tab.addEventListener('click', function() {
                     const symbol = this.dataset.symbol;
                     const interval = this.dataset.interval;
+
+                    // 保存用户选择到 localStorage
+                    setSelectedInterval(symbol, interval);
 
                     // 切换Tab active状态
                     document.querySelectorAll(`.advice-tab[data-symbol="${symbol}"]`).forEach(t => {
