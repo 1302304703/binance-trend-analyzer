@@ -43,6 +43,12 @@ def chart():
     return render_template('chart.html', symbols=SYMBOLS, intervals=INTERVALS)
 
 
+@app.route('/accuracy')
+def accuracy():
+    """准确率统计页面"""
+    return render_template('accuracy.html')
+
+
 @app.route('/api/analysis')
 def get_analysis():
     """获取分析数据API（使用缓存，秒级响应）"""

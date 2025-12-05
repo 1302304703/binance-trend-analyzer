@@ -210,13 +210,33 @@ class PredictionTracker:
                 else:
                     stats['accuracy'] = 0
 
+            # 按置信度统计
+            by_confidence = {}
+            for p in verified:
+                conf = p.get('confidence', '中')
+                if conf not in by_confidence:
+                    by_confidence[conf] = {'total': 0, 'correct': 0}
+                by_confidence[conf]['total'] += 1
+                if p['is_correct']:
+                    by_confidence[conf]['correct'] += 1
+
+            # 计算各置信度准确率
+            for conf, stats in by_confidence.items():
+                if stats['total'] > 0:
+                    stats['accuracy'] = round(stats['correct'] / stats['total'] * 100, 1)
+                else:
+                    stats['accuracy'] = 0
+
+            overall_accuracy = round(correct_count / verified_count * 100, 1) if verified_count > 0 else 0
+
             return {
                 'total_predictions': total,
                 'verified_count': verified_count,
                 'pending_count': total - verified_count,
                 'correct_count': correct_count,
-                'accuracy': round(correct_count / verified_count * 100, 1) if verified_count > 0 else 0,
-                'by_interval': by_interval
+                'overall_accuracy': overall_accuracy,
+                'by_interval': by_interval,
+                'by_confidence': by_confidence
             }
 
     def get_interval_accuracy(self, symbol: str, interval: str) -> Optional[Dict]:

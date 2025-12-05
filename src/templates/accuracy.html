@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>预测准确率统计 - 币安趋势分析</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding: 20px 0 30px;
+        }
+        .header h1 { font-size: 28px; margin-bottom: 10px; }
+        .header .nav {
+            margin-bottom: 10px;
+        }
+        .header .nav a {
+            color: #4a90d9;
+            text-decoration: none;
+            margin: 0 10px;
+            font-size: 14px;
+        }
+        .header .nav a:hover { text-decoration: underline; }
+        .header .time { color: #888; font-size: 14px; }
+
+        .container { max-width: 1200px; margin: 0 auto; }
+
+        /* 总体准确率卡片 */
+        .overall-card {
+            background: linear-gradient(135deg, rgba(102,126,234,0.2), rgba(118,75,162,0.2));
+            border-radius: 16px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 25px;
+        }
+        .overall-title {
+            font-size: 16px;
+            color: #888;
+            margin-bottom: 15px;
+        }
+        .overall-value {
+            font-size: 72px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .overall-value.high { color: #00d4aa; }
+        .overall-value.medium { color: #f39c12; }
+        .overall-value.low { color: #ff6b6b; }
+        .overall-meta {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin-top: 20px;
+        }
+        .overall-meta-item {
+            text-align: center;
+        }
+        .overall-meta-item .value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+        .overall-meta-item .label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+
+        /* 统计网格 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+
+        .stats-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .stats-card-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .stats-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .stats-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+        }
+        .stats-item .label {
+            font-size: 14px;
+            color: #aaa;
+        }
+        .stats-item .data {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .stats-item .accuracy {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .stats-item .accuracy.high { color: #00d4aa; }
+        .stats-item .accuracy.medium { color: #f39c12; }
+        .stats-item .accuracy.low { color: #ff6b6b; }
+        .stats-item .count {
+            font-size: 12px;
+            color: #666;
+        }
+
+        /* 进度条 */
+        .progress-bar {
+            width: 100px;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-bar .fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.3s ease;
+        }
+        .progress-bar .fill.high { background: #00d4aa; }
+        .progress-bar .fill.medium { background: #f39c12; }
+        .progress-bar .fill.low { background: #ff6b6b; }
+
+        /* 说明卡片 */
+        .info-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 24px;
+        }
+        .info-card-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        .info-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .info-item {
+            font-size: 13px;
+            color: #aaa;
+            padding-left: 16px;
+            position: relative;
+        }
+        .info-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 8px;
+            width: 6px;
+            height: 6px;
+            background: #4a90d9;
+            border-radius: 50%;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: #666;
+            font-size: 12px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 50px;
+            color: #888;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>预测准确率统计</h1>
+            <div class="nav">
+                <a href="/">趋势分析</a>
+                <a href="/chart">K线图表</a>
+            </div>
+            <span class="time" id="updateTime">加载中...</span>
+        </div>
+
+        <div id="content">
+            <div class="loading">数据加载中...</div>
+        </div>
+
+        <div class="footer">
+            数据每次预测后自动记录，按周期时间自动验证准确率
+        </div>
+    </div>
+
+    <script>
+        function getAccuracyClass(accuracy) {
+            if (accuracy >= 60) return 'high';
+            if (accuracy >= 45) return 'medium';
+            return 'low';
+        }
+
+        function renderStats(data) {
+            const content = document.getElementById('content');
+
+            if (!data || data.verified_count === 0) {
+                content.innerHTML = `
+                    <div class="overall-card">
+                        <div class="overall-title">暂无已验证的预测数据</div>
+                        <div style="color:#888;margin-top:20px;">
+                            系统将在预测后自动验证准确率<br>
+                            <small>待验证: ${data?.pending_count || 0} 条</small>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            const overallClass = getAccuracyClass(data.overall_accuracy);
+
+            // 按周期统计
+            let intervalHtml = '';
+            const intervals = ['5m', '30m', '1h', '4h', '1d'];
+            for (const intv of intervals) {
+                const stat = data.by_interval[intv];
+                if (stat && stat.total > 0) {
+                    const accClass = getAccuracyClass(stat.accuracy);
+                    intervalHtml += `
+                        <div class="stats-item">
+                            <span class="label">${intv}</span>
+                            <div class="data">
+                                <div class="progress-bar">
+                                    <div class="fill ${accClass}" style="width: ${stat.accuracy}%"></div>
+                                </div>
+                                <span class="accuracy ${accClass}">${stat.accuracy}%</span>
+                                <span class="count">${stat.correct}/${stat.total}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            // 按置信度统计
+            let confidenceHtml = '';
+            const confidenceOrder = ['极高', '高', '中高', '中', '低'];
+            for (const conf of confidenceOrder) {
+                const stat = data.by_confidence[conf];
+                if (stat && stat.total > 0) {
+                    const accClass = getAccuracyClass(stat.accuracy);
+                    confidenceHtml += `
+                        <div class="stats-item">
+                            <span class="label">${conf}</span>
+                            <div class="data">
+                                <div class="progress-bar">
+                                    <div class="fill ${accClass}" style="width: ${stat.accuracy}%"></div>
+                                </div>
+                                <span class="accuracy ${accClass}">${stat.accuracy}%</span>
+                                <span class="count">${stat.correct}/${stat.total}</span>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            content.innerHTML = `
+                <div class="overall-card">
+                    <div class="overall-title">总体预测准确率</div>
+                    <div class="overall-value ${overallClass}">${data.overall_accuracy}%</div>
+                    <div class="overall-meta">
+                        <div class="overall-meta-item">
+                            <div class="value">${data.verified_count}</div>
+                            <div class="label">已验证</div>
+                        </div>
+                        <div class="overall-meta-item">
+                            <div class="value">${data.correct_count}</div>
+                            <div class="label">预测正确</div>
+                        </div>
+                        <div class="overall-meta-item">
+                            <div class="value">${data.pending_count}</div>
+                            <div class="label">待验证</div>
+                        </div>
+                        <div class="overall-meta-item">
+                            <div class="value">${data.total_predictions}</div>
+                            <div class="label">总预测数</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stats-card">
+                        <div class="stats-card-title">按周期统计</div>
+                        <div class="stats-list">
+                            ${intervalHtml || '<div style="color:#666;text-align:center;padding:20px;">暂无数据</div>'}
+                        </div>
+                    </div>
+                    <div class="stats-card">
+                        <div class="stats-card-title">按置信度统计</div>
+                        <div class="stats-list">
+                            ${confidenceHtml || '<div style="color:#666;text-align:center;padding:20px;">暂无数据</div>'}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="info-card">
+                    <div class="info-card-title">统计说明</div>
+                    <div class="info-list">
+                        <div class="info-item">预测方向与实际价格变化方向一致视为正确</div>
+                        <div class="info-item">价格变化幅度 >0.1% 视为有方向性变化</div>
+                        <div class="info-item">各周期按对应时间自动验证（5m=5分钟后，1h=1小时后...）</div>
+                        <div class="info-item">准确率 >=60% 为高，45%-60% 为中，<45% 为低</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/accuracy');
+                const result = await response.json();
+                if (result.success) {
+                    renderStats(result.data);
+                    document.getElementById('updateTime').textContent =
+                        '更新于 ' + new Date().toLocaleString('zh-CN');
+                }
+            } catch (error) {
+                console.error('获取数据失败:', error);
+            }
+        }
+
+        // 初始化
+        fetchData();
+
+        // 定时刷新
+        setInterval(fetchData, 60000);  // 1分钟刷新一次
+    </script>
+</body>
+</html>
